@@ -54,6 +54,7 @@ from .mockups import (
 from .delivery_pdf import make_delivery_pdf
 
 from .dropbox_ops import normalize_share_link
+from .workflow import STATUSES, approve_qa2, require_ready_for_publish
 
 
 # ---------- Paths ----------
@@ -66,9 +67,6 @@ PRODUCTS_DIR = Path(os.getenv("RR_PRODUCTS_DIR", repo_root() / "products")).expa
 
 
 # ---------- Data ----------
-STATUSES = ["NEW", "HAS_MASTER", "APPROVED", "REJECTED", "BUILT", "READY", "PUBLISHED"]
-
-
 @dataclass
 class Row:
     product_id: str
@@ -96,6 +94,9 @@ def read_queue(csv_path: Path) -> list[Row]:
             }
 
             extras = {k: (v or "").strip() for k, v in r.items() if k not in core}
+            legacy_link = extras.pop("dropbox_share_link", "")
+            if legacy_link and not extras.get("dropbox_link"):
+                extras["dropbox_link"] = legacy_link
 
             rows.append(
                 Row(
@@ -146,8 +147,8 @@ def ensure_readme_in_exports(product_id: str) -> Path:
     """
     Ensures README-HowToPrint.pdf exists inside:
       products/<product_id>/exports/README-HowToPrint.pdf
-    Source assumed at repo root:
-      README-HowToPrint.pdf
+    Source:
+      assets/README-HowToPrint.pdf
     """
     src = repo_root() / "assets" / "README-HowToPrint.pdf"
     if not src.exists():
@@ -165,16 +166,18 @@ class TaskWorker(QObject):
     progress = Signal(int, str)   # percent, message
     done = Signal(bool, str)      # success, message
 
-    def __init__(self, fn, *args, **kwargs):
+    def __init__(self, fn, *args, success_message: str = "Task completed.", **kwargs):
         super().__init__()
         self.fn = fn
         self.args = args
         self.kwargs = kwargs
+        self.success_message = success_message
 
     def run(self):
         try:
-            self.fn(self.progress.emit, *self.args, **self.kwargs)
-            self.done.emit(True, "Task completed.")
+            result = self.fn(self.progress.emit, *self.args, **self.kwargs)
+            message = result if isinstance(result, str) and result else self.success_message
+            self.done.emit(True, message)
         except Exception as e:
             self.done.emit(False, f"{type(e).__name__}: {e}")
 
@@ -250,6 +253,11 @@ class MainWindow(QMainWindow):
         self.thread: QThread | None = None
         self.worker: TaskWorker | None = None
         self._last_progress_pct = -1
+        self._task_success = False
+        self._task_message = ""
+        self._task_set_status: str | None = None
+        self._last_share_link = ""
+        self._last_delivery_pdf = ""
 
         # Table
         self.table = QTableWidget(0, 5)
@@ -263,6 +271,8 @@ class MainWindow(QMainWindow):
         self.title = QLineEdit()
         self.status = QComboBox()
         self.status.addItems(STATUSES)
+        self.status.setEnabled(False)
+        self.status.setToolTip("Workflow status is changed by the QA and pipeline actions.")
         self.notes = QTextEdit()
         self.master_path = QLineEdit()
         self.thumb = QLabel("No image selected")
@@ -286,6 +296,7 @@ class MainWindow(QMainWindow):
         self.btn_mockups_all = QPushButton("Generate ALL Mockups")
         self.btn_mockups_final = QPushButton("Generate FINAL Mockups")
         self.btn_open_mockups = QPushButton("Open Mockups Folder")
+        self.btn_approve_qa2 = QPushButton("Approve (QA 2)")
 
         self.btn_publish = QPushButton("Publish Dropbox")
 
@@ -304,6 +315,7 @@ class MainWindow(QMainWindow):
         self.btn_mockups_all.clicked.connect(self.generate_mockups_all)
         self.btn_mockups_final.clicked.connect(self.generate_mockups_final)
         self.btn_open_mockups.clicked.connect(self.open_mockups_folder)
+        self.btn_approve_qa2.clicked.connect(self.approve_qa2_selected)
 
         self.btn_publish.clicked.connect(self.publish_selected)
 
@@ -367,6 +379,7 @@ class MainWindow(QMainWindow):
         right.addLayout(action_row3)
 
         action_row4 = QHBoxLayout()
+        action_row4.addWidget(self.btn_approve_qa2)
         action_row4.addWidget(self.btn_publish)
         action_row4.addWidget(self.btn_delivery_pdf)
         right.addLayout(action_row4)
@@ -560,7 +573,7 @@ class MainWindow(QMainWindow):
         self.status.setCurrentText(new_status)
         self.save_current_row()
 
-    def _start_task(self, task_fn, *args):
+    def _start_task(self, task_fn, *args, success_message: str = "Task completed."):
         # Prevent double-start
         if self.thread is not None:
             self.error("A task is already running.")
@@ -570,9 +583,11 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.progress.setFormat("Working...")
         self._last_progress_pct = -1
+        self._task_success = False
+        self._task_message = success_message
 
         self.thread = QThread()
-        self.worker = TaskWorker(task_fn, *args)
+        self.worker = TaskWorker(task_fn, *args, success_message=success_message)
         self.worker.moveToThread(self.thread)
 
         # Always queued => runs on GUI thread
@@ -620,7 +635,7 @@ class MainWindow(QMainWindow):
 
         # Store final status so cleanup can apply it safely on GUI thread
         self._task_success = success
-        self._task_message = msg
+        self._task_message = msg or self._task_message
 
     def _cleanup_worker(self) -> None:
         # Runs on GUI thread after thread stops
@@ -653,8 +668,18 @@ class MainWindow(QMainWindow):
         # Persist last known Dropbox outputs to extras if present
         idx = self.current_index()
         if idx >= 0 and idx < len(self.rows):
-            self.rows[idx].extras["dropbox_share_link"] = getattr(self, "_last_share_link", "")
-            self.rows[idx].extras["delivery_pdf_path"] = getattr(self, "_last_delivery_pdf", "")
+            extras = self.rows[idx].extras
+            legacy_link = extras.pop("dropbox_share_link", "")
+            if legacy_link and not extras.get("dropbox_link"):
+                extras["dropbox_link"] = legacy_link
+
+            share_link = getattr(self, "_last_share_link", "")
+            if share_link:
+                extras["dropbox_link"] = normalize_share_link(share_link, dl=False)
+
+            delivery_pdf = getattr(self, "_last_delivery_pdf", "")
+            if delivery_pdf:
+                extras["delivery_pdf_path"] = delivery_pdf
             write_queue(QUEUE_CSV, self.rows)
 
     def _pretty_title(self) -> str:
@@ -751,14 +776,8 @@ class MainWindow(QMainWindow):
             title,
             raw_path,
             upscaled_path,
+            success_message=f"Build complete.\nUpscaled:\n{upscaled_path}\n\nExports created.",
         )
-
-        # Set status after task finishes, safely in GUI thread via message box text
-        # We'll set it in _cleanup_worker by using the success message
-        self._task_message = f"Build complete.\nUpscaled:\n{upscaled_path}\n\nExports created."
-        # status update is better done after success:
-        # we'll do it in _cleanup_worker using current fields
-        self._task_success = False  # will be set by worker
 
     def open_mockups_folder(self) -> None:
         product_id = self.pid.text().strip()
@@ -814,6 +833,10 @@ class MainWindow(QMainWindow):
             self.error("product_id is required.")
             return
 
+        if self.status.currentText() not in {"BUILT", "READY"}:
+            self.error("Build exports before generating final mockups.")
+            return
+
         exports_dir = PRODUCTS_DIR / product_id / "exports" / "2x3"
         if not exports_dir.exists():
             self.error("Exports not found. Run 'Build Exports' first.")
@@ -828,11 +851,35 @@ class MainWindow(QMainWindow):
             self.error(f"Mockups (FINAL) failed:\n{e}")
             return
 
-        # Optional: bump status to READY after FINAL set
-        self.status.setCurrentText("READY")
-        self.save_current_row()
+        if self.status.currentText() != "BUILT":
+            self.status.setCurrentText("BUILT")
+            self.save_current_row()
 
-        self.info(f"Generated FINAL set ({len(outs)} files) in:\n{product_dir / 'mockups/etsy'}")
+        self.info(
+            f"Generated FINAL set ({len(outs)} files) in:\n{product_dir / 'mockups/etsy'}"
+            "\n\nReview the outputs, then click 'Approve (QA 2)'."
+        )
+
+    def approve_qa2_selected(self) -> None:
+        product_id = self.pid.text().strip()
+        final_dir = PRODUCTS_DIR / product_id / "mockups" / "etsy"
+        expected = {
+            *(final_dir / f"mockup_{index:02d}.png" for index in range(1, 4)),
+            *(final_dir / f"info_{index:02d}.png" for index in range(1, 4)),
+        }
+        missing = sorted(path.name for path in expected if not path.exists())
+        if missing:
+            self.error("QA #2 requires the complete final output set. Missing: " + ", ".join(missing))
+            return
+
+        try:
+            new_status = approve_qa2(self.status.currentText())
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+
+        self.status.setCurrentText(new_status)
+        self.save_current_row()
 
     def update_thumbnail(self, img_path_str: str) -> None:
         p = Path(img_path_str) if img_path_str else None
@@ -869,6 +916,9 @@ class MainWindow(QMainWindow):
             getattr(self, "btn_mockups_all", None),
             getattr(self, "btn_mockups_final", None),
             getattr(self, "btn_open_mockups", None),
+            getattr(self, "btn_approve_qa2", None),
+            self.btn_publish,
+            self.btn_delivery_pdf,
             self.btn_new,
             self.btn_save,
             self.btn_reload,
@@ -892,6 +942,12 @@ class MainWindow(QMainWindow):
             self.error("product_id is required.")
             return
 
+        try:
+            require_ready_for_publish(self.status.currentText())
+        except ValueError as exc:
+            self.error(str(exc))
+            return
+
         exports_dir = PRODUCTS_DIR / product_id / "exports"
         if not exports_dir.exists():
             self.error("Exports not found. Run 'Build Exports' first.")
@@ -912,9 +968,16 @@ class MainWindow(QMainWindow):
             share_link = normalize_share_link(share_link, dl=False)  # ensure view-style link
 
         self._task_set_status = "PUBLISHED"
-        self._start_task(task, product_id, title)
-        self._task_message = "Dropbox upload complete.\n\nYour customer folder contains:\n- 6 aspect ratio folders\n- README-HowToPrint.pdf"
-        self._task_success = False
+        self._last_share_link = ""
+        self._start_task(
+            task,
+            product_id,
+            title,
+            success_message=(
+                "Dropbox upload complete.\n\nYour customer folder contains:\n"
+                "- 6 aspect ratio folders\n- README-HowToPrint.pdf"
+            ),
+        )
 
     def prepare_delivery_pdf_selected(self) -> None:
         idx = self.current_index()
@@ -944,21 +1007,11 @@ class MainWindow(QMainWindow):
             pdf_path = make_delivery_pdf(product=product_id, title=nice_title, share_link=dropbox_link)
             self._last_delivery_pdf = str(pdf_path)
             emit(100, f"Delivery PDF created: {pdf_path.name}")
+            return f"Delivery PDF created:\n{pdf_path}"
 
-            # store path
-            return str(pdf_path)
-
-        result = {"pdf": ""}
-
-        def wrapped_task(emit, product_id: str, nice_title: str, dropbox_link: str):
-            result["pdf"] = task(emit, product_id, nice_title, dropbox_link)
-
-        self._start_task(wrapped_task, product_id, nice_title, dropbox_link)
-        self._task_message = f"Delivery PDF created:\n{result['pdf']}"
-        self._task_success = False
-
-        # Persist delivery path into CSV extras after done (best-effort)
         self._task_set_status = None  # don't change status just for creating pdf
+        self._last_delivery_pdf = ""
+        self._start_task(task, product_id, nice_title, dropbox_link)
 
 def main() -> None:
     app = QApplication(sys.argv)

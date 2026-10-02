@@ -4,7 +4,6 @@ import re
 import argparse
 import subprocess
 from pathlib import Path
-from typing import Tuple
 
 from .dropbox_ops import (
     dbx_client,
@@ -28,8 +27,6 @@ def run_py(script_rel: str, args_list: list[str]) -> None:
     if not script_path.exists():
         raise FileNotFoundError(f"Missing script: {script_path}")
 
-    cmd = [str(Path(subprocess.__file__).parent.parent / "python.exe")]  # best-effort; overridden below
-    # Use current interpreter (works inside venv)
     cmd = [subprocess.sys.executable, str(script_path)] + args_list
 
     print("RUN:", " ".join(cmd))
@@ -64,7 +61,7 @@ def build_exports(product: str, title: str, master_path: Path) -> Path:
     return exports_dir
 
 
-def publish_to_dropbox(product: str, title: str) -> Tuple[str, str]:
+def publish_to_dropbox(product: str, title: str) -> tuple[str, str]:
     """
     Uploads the CONTENTS of:
       products/<product>/exports  -> /RenderandRise/<clean_title_folder>/
@@ -114,25 +111,6 @@ def publish_to_dropbox(product: str, title: str) -> Tuple[str, str]:
     share = normalize_share_link(share, dl=False)
     return product_root, share
 
-def generate_and_upload_delivery_pdf(product: str, title: str, share_link: str) -> Path:
-    """
-    Creates delivery PDF locally, then uploads it to Dropbox delivery folder.
-    """
-    pdf_path = make_delivery_pdf(product=product, title=title, share_link=share_link)
-
-    dbx = dbx_client()
-    product_root = f"/RenderandRise/{product}"
-    delivery_root = f"{product_root}/delivery"
-    ensure_folder(dbx, "/RenderandRise")
-    ensure_folder(dbx, product_root)
-    ensure_folder(dbx, delivery_root)
-
-    dropbox_pdf_path = f"{delivery_root}/{pdf_path.name}"
-    upload_file(dbx, pdf_path, dropbox_pdf_path, overwrite=True)
-
-    return pdf_path
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--product", required=True)
@@ -153,8 +131,8 @@ def main():
     print("Uploading exports to Dropbox...")
     _, share_link = publish_to_dropbox(product, title)
 
-    print("Generating + uploading delivery PDF...")
-    pdf_path = generate_and_upload_delivery_pdf(product, title, share_link)
+    print("Generating local delivery PDF for manual Etsy upload...")
+    pdf_path = make_delivery_pdf(product=product, title=title, share_link=share_link)
 
     print("\nDONE")
     print("Share link:", share_link)

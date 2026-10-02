@@ -127,8 +127,8 @@ def build_final_etsy_set_for_product(
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
-    product_dir = root / "products" / "RR-0001_raccoon-bath"
-    templates_dir = root / "factory" / "templates" / "mockups"
+    product_dir = root / "products" / "RR-DEMO-001"
+    templates_dir = root / "assets" / "mockup_templates"
 
     print("Generating ALL mockups...")
     outs_all = build_all_mockups_for_product(product_dir, templates_dir)

@@ -3,7 +3,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--product", required=True, help="Product folder name inside /products (e.g., RR-0001_raccoon-bath)")
+    parser.add_argument("--product", required=True, help="Product folder name inside /products (e.g., RR-DEMO-001)")
     parser.add_argument("--input", required=True, help="Path to master/upscaled image (png/jpg)")
     args = parser.parse_args()
 

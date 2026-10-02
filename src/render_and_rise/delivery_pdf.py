@@ -127,8 +127,7 @@ def make_delivery_pdf(
     delivery_dir = product_dir / "delivery"
     delivery_dir.mkdir(parents=True, exist_ok=True)
 
-    # Your repo_tree shows delivery_template.docx at repo root.
-    # Prefer repo root template first, fallback to assets/ if you later move it.
+    # Support a root-level local template, with assets/ as the documented fallback.
     template = template_docx or (root / "delivery_template.docx")
     if not template.exists():
         alt = root / "assets" / "delivery_template.docx"

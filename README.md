@@ -4,7 +4,7 @@ A Python-based human-in-the-loop automation system for producing and packaging d
 
 Render & Rise began as a small Etsy experiment while I was studying Electrical Engineering and evolved into an engineering project focused on eliminating repetitive production work while retaining human quality-control checkpoints.
 
-> **Status:** Built, deployed, and validated against a live Etsy storefront. The commercial storefront is no longer active. A later Shop Manager capture records 13 sales and shows the account suspended with its listings deactivated; the automation system is now maintained as an engineering portfolio project.
+> **Status:** Built, deployed, and validated against a live Etsy storefront, with a later Shop Manager record showing 13 sales. The commercial storefront is now inactive; the automation system is maintained as an engineering portfolio project.
 
 ## Overview
 
@@ -28,11 +28,11 @@ flowchart TD
     C --> D[Six aspect-ratio exports]
     D --> E[Calibrated mockup generation]
     E --> F[File and folder validation]
-    F --> G[Dropbox publishing]
-    G --> H[Delivery PDF generation]
-    H --> I{Human QA #2}
-    I -->|Approve| J[Manual Etsy upload or scheduling]
-    I -->|Revise| D
+    F --> G{Human QA #2}
+    G -->|Approve| H[Dropbox publishing]
+    G -->|Revise| D
+    H --> I[Delivery PDF generation]
+    I --> J[Manual Etsy upload or scheduling]
 ```
 
 The final Etsy publication step was deliberately left manual. Automation is strongest at deterministic production work; subjective quality and customer-facing decisions remain human responsibilities.
@@ -45,7 +45,7 @@ stateDiagram-v2
     NEW --> HAS_MASTER: attach master
     HAS_MASTER --> APPROVED: human approval
     APPROVED --> BUILT: upscale and export
-    BUILT --> READY: generate and review mockups
+    BUILT --> READY: human QA #2 approval
     READY --> PUBLISHED: publish delivery package
 ```
 
@@ -110,7 +110,7 @@ render-and-rise-automation/
 
 ## Example Workflow
 
-An operator creates a queue row, attaches a master, performs QA, and marks it `APPROVED`. The application upscales it, builds six export folders, creates calibrated mockups, validates the package, publishes the delivery files to Dropbox, and generates a linked PDF. After a second review, the operator uploads or schedules the Etsy listing manually.
+An operator creates a queue row, attaches a master, performs QA, and marks it `APPROVED`. The application upscales it, builds six export folders, and creates calibrated mockups. After reviewing the final outputs, the operator explicitly approves QA #2 to enter `READY`, publishes the delivery files to one human-readable Dropbox folder, generates a linked PDF locally, and manually uploads or schedules the Etsy listing.
 
 ## Reliability / Validation
 
