@@ -1,0 +1,4 @@
+product_id,title,status,notes,master_path,animal,activity,room,dropbox_link,delivery_pdf_path
+RR-DEMO-001,Bear Laundry Print,NEW,Representative sample row,,bear,holding a laundry basket,utility room,,
+RR-DEMO-002,Hedgehog Pancake Print,HAS_MASTER,Awaiting human QA,products/RR-DEMO-002/master/raw.png,hedgehog,making pancakes,kitchen,,
+RR-DEMO-003,Cat Spa Print,APPROVED,Approved sample workflow state,products/RR-DEMO-003/master/raw.png,cat,spa routine,bathroom,,

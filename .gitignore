@@ -1,0 +1,45 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+credentials*
+token*
+secrets*
+*.pem
+*.key
+.etsy_oauth_state.json
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Private operational data and generated artifacts
+data/
+products/
+output/
+reports/
+logs/
+products_queue.csv
+products_queue.backup_*.csv
+**/delivery_pdf/dropbox_link.txt
+**/dropbox_link.txt
+**/upscale_log.txt
+assets/mockup_templates/calibration/cache/
+assets/delivery_template.docx
+assets/README-HowToPrint.pdf
